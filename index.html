@@ -1003,7 +1003,7 @@ function resumoEquip(it){
 
 /* ---------- cozinha: as classes que alimentam ---------- */
 const ARV_COZINHA = ['cozinheiro','boticario','alquimista','fazendeiro','taverneiro'];
-const podeCozinhar = () => ARV_COZINHA.some(a => temPericia(a));
+const podeCozinhar = () => ARV_COZINHA.some(a => temOficio(a));
 const PRATOS = [
   {n:'Refeição Reforçada',  k:'xp',     d:'XP recebido'},
   {n:'Caldo de Ouro',       k:'coin',   d:'Coins recebidos'},
@@ -1131,9 +1131,19 @@ const PERICIAS = {
 const PER_MAX = 50;
 const REQ_HAB = [0, 8, 16, 26, 36, 46, 50];
 const xpHab = n => Math.round(150 * Math.pow(n, 1.45) / 10) * 10;
-const perObj = arv => { if(!state.pericias) state.pericias = {};
-  return state.pericias[arv] || (state.pericias[arv] = {n:1, xp:0}); };
-const nivelPericia = arv => PERICIAS[arv] ? perObj(arv).n : 0;
+/* ATENÇÃO: ler o nível NUNCA cria a perícia. Só ganhar XP nela cria.
+   Era esse efeito colateral que liberava todas as oficinas de uma vez. */
+const perObj = (arv, criar) => {
+  if(!state.pericias) state.pericias = {};
+  if(!state.pericias[arv] && criar) state.pericias[arv] = {n:1, xp:0};
+  return state.pericias[arv] || null;
+};
+function nivelPericia(arv){
+  if(!PERICIAS[arv]) return 0;
+  const o = state.pericias && state.pericias[arv];
+  if(o) return o.n;
+  return CLS().some(c => c.arv === arv) ? 1 : 0;   // classe equipada começa em 1, sem gravar
+}
 const estagioPericia = n => Math.min(4, Math.floor((n-1)/10));
 function nomePericia(arv, comEstagio=true){
   const p = PERICIAS[arv]; if(!p) return '—';
@@ -1163,7 +1173,7 @@ function ganharPericia(xp){
 }
 function ganharPericiaEm(arv, xp){
   const c = CLASSES[arv + ':0']; if(!PERICIAS[arv] || xp <= 0) return;
-  const o = perObj(arv);
+  const o = perObj(arv, true);
   if(o.n >= PER_MAX) return;
   const estAntes = estagioPericia(o.n);
   o.xp += Math.round(xp);
@@ -2084,7 +2094,8 @@ function linhaReq(r){
 function painelPericia(){
   const c = CL();
   if(c.arv === 'nenhuma' || !PERICIAS[c.arv]) return '';
-  const o = perObj(c.arv), n = o.n, est = estagioPericia(n), dentro = ((n-1)%10)+1;
+  const o = perObj(c.arv) || {n:nivelPericia(c.arv), xp:0};
+  const n = o.n, est = estagioPericia(n), dentro = ((n-1)%10)+1;
   const nec = xpHab(n), pct = n >= PER_MAX ? 100 : Math.min(100, o.xp/nec*100);
   const max = n >= PER_MAX, pk = statFoco(c.arq);
   const proxEst = est < 4 ? nomeEstagio(c.arv, est+1) : null;
@@ -2125,7 +2136,9 @@ function verPericias(){
   abrirSheet(`<div class="sheet">
     <h3>Perícias treinadas · ${ps.length}</h3>
     <div class="lbl" style="line-height:1.7;margin-bottom:12px;text-transform:none;letter-spacing:0">
-      Perícia aprendida não se perde ao trocar de classe. As marcadas em azul estão recebendo XP agora
+      Perícia aprendida não se perde ao trocar de classe, e cada bancada pertence a uma perícia só —
+      ela abre no nível ${NIVEL_OFICIO} e nenhuma outra perícia empresta acesso.
+      As marcadas em azul estão recebendo XP agora
       (dividido entre ${ativas.filter(a=>a!=='nenhuma').length||1}); as demais ficam guardadas no nível em que pararam —
       e continuam dando acesso à oficina delas.
     </div>
@@ -2138,8 +2151,12 @@ function verPericias(){
           <span class="num" style="font-size:13px;color:var(--mute)">nv ${o.n}</span>
         </div>
         <div class="dq-progress" style="margin-top:6px"><i style="width:${o.n/PER_MAX*100}%"></i></div>
-        ${(of || cozinha) ? `<div class="lbl" style="margin-top:5px;color:var(--ouro);text-transform:none;letter-spacing:0">
-          Oficina liberada: ${esc(of ? of.v : 'Cozinhar')}</div>` : ''}
+        ${(of || cozinha) ? (() => { const nome = of ? of.v : 'Cozinhar', aberta = o.n >= NIVEL_OFICIO;
+          return `<div class="lbl" style="margin-top:5px;text-transform:none;letter-spacing:0;
+            color:${aberta?'var(--ouro)':'var(--mute)'}">
+            ${aberta ? `Bancada aberta: ${esc(nome)}`
+                     : `Bancada de ${esc(nome)} · abre no nível ${NIVEL_OFICIO}, faltam ${NIVEL_OFICIO - o.n}`}</div>`;
+        })() : ''}
       </div>`;
     }).join('') || '<div class="lbl">Nenhuma perícia treinada ainda.</div>'}
     <button class="btn ghost full" data-act="fechar-sheet" style="margin-top:14px">Fechar</button></div>`);
@@ -2734,13 +2751,18 @@ function renderBolsa(){
       </div>`;
     }
     if(!of && !col){
+      const form = oficioEmFormacao();
       html += `<h2 class="title" id="t-oficina">Produção</h2>
       <div class="panel">
         <div class="lbl" style="line-height:1.8;text-transform:none;letter-spacing:0">
-          <b style="color:var(--gelo)">${esc(CL().nome)} não fabrica.</b> Classes de combate, magia e furtividade
-          não têm bancada — em troca, os materiais que vocês trazem de missão e portal vêm bem mais raros.
-          Para transformar esse material em equipamento, absorva uma classe de Produção pela aba Classes:
-          Ferreiro forja, Alfaiate costura, Joalheiro lapida, Cozinheiro cozinha.
+          ${form
+            ? `<b style="color:var(--ouro)">${esc(PERICIAS[form.arv][0])} está no nível ${form.nv}.</b>
+               A bancada de <b style="color:var(--gelo)">${esc(form.v)}</b> abre no nível ${NIVEL_OFICIO} —
+               faltam ${form.falta} ${form.falta===1?'nível':'níveis'}. Metade do XP que você ganha vai para lá.`
+            : `<b style="color:var(--gelo)">${esc(CL().nome)} não fabrica nada.</b> Classes de combate, magia e
+               furtividade não têm bancada — em troca, o material que vocês trazem de missão e portal vem bem mais raro.
+               Cada bancada pertence a uma perícia só: Ferraria forja, Costura costura, Mineração escava.
+               Para abrir uma, absorva a classe correspondente e treine a perícia até o nível ${NIVEL_OFICIO}.`}
         </div>
       </div>`;
     }
@@ -2825,30 +2847,58 @@ function renderBolsa(){
 /* ---------- forja: escolher materiais ---------- */
 /* cada ofício tem o seu próprio verbo e a sua própria ação.
    Quem não é de Produção não fabrica: coleta material ou encomenda de quem fabrica. */
+/* Nível mínimo de perícia para abrir a bancada. Ter a classe não basta: tem que ter treinado. */
+const NIVEL_OFICIO = 5;
+/* Cada ofício faz só o que sabe fazer. Ferreiro não escava, alfaiate não forja espada. */
+const FORJA = {
+  ferreiro:[['Espada','arma'],['Machado','arma'],['Lança','arma'],['Martelo','arma'],['Adaga','arma'],['Foice','arma'],
+            ['Elmo','elmo'],['Peitoral','peitoral'],['Cota de Malha','peitoral'],['Manoplas','luvas'],['Grevas','botas']],
+  alfaiate:[['Túnica','peitoral'],['Manto','peitoral'],['Capuz','elmo'],['Calça Acolchoada','calca'],
+            ['Botas de Couro','botas'],['Luvas de Couro','luvas']],
+  joalheiro:[['Anel','anel'],['Selo','anel'],['Colar','colar'],['Amuleto','colar'],['Pingente','colar'],['Tiara','elmo']],
+  carpinteiro:[['Arco','arma'],['Cajado','arma'],['Bastão','arma'],['Escudo de Madeira','peitoral'],['Sandálias de Casca','botas']],
+  escultor:[['Totem','colar'],['Amuleto de Pedra','colar'],['Bracelete Entalhado','anel'],['Máscara de Pedra','elmo']],
+  artifice:[['Besta Mecânica','arma'],['Engenho de Punho','luvas'],['Peitoral Articulado','peitoral'],
+            ['Visor','elmo'],['Botas com Mola','botas']],
+  espadamec:[['Lâmina Servo-Motor','arma'],['Braço Auxiliar','luvas'],['Visor Tático','elmo'],['Perna Sintética','calca']]
+};
+FORJA.forjanao = FORJA.ferreiro; FORJA.inventor = FORJA.artifice; FORJA.nucleo = FORJA.espadamec;
 const OFICIOS = {
   ferreiro:  {v:'Forjar',    ac:'equip'},  forjanao: {v:'Forjar',    ac:'equip'},
   alfaiate:  {v:'Costurar',  ac:'equip'},  joalheiro:{v:'Lapidar',   ac:'equip'},
   carpinteiro:{v:'Entalhar', ac:'equip'},  escultor: {v:'Esculpir',  ac:'equip'},
   artifice:  {v:'Montar',    ac:'equip'},  inventor: {v:'Montar',    ac:'equip'},
   nucleo:    {v:'Calibrar',  ac:'equip'},  espadamec:{v:'Calibrar',  ac:'equip'},
-  mercador:  {v:'Encomendar',ac:'equip'},
   minerador: {v:'Escavar',   ac:'coleta', m:['metal','gema']},
   lenhador:  {v:'Derrubar',  ac:'coleta', m:['madeira']},
   pescador:  {v:'Pescar',    ac:'coleta', m:['osso','essencia']},
   fazendeiro:{v:'Colher',    ac:'coleta', m:['tecido','madeira']},
   navegador: {v:'Dragar',    ac:'coleta', m:['osso','gema']},
-  abissal:   {v:'Mergulhar', ac:'coleta', m:['gema','essencia']}
+  abissal:   {v:'Mergulhar', ac:'coleta', m:['gema','essencia']},
+  mercador:  {v:'Encomendar',ac:'coleta', m:['metal','tecido','gema']}
 };
 /* Perícia aprendida não se perde: quem treinou Ferraria continua com a bancada,
    mesmo tendo trocado de classe. A classe ativa só muda o bônus da roleta. */
-const temPericia = arv => !!(state.pericias && state.pericias[arv]) || CLS().some(c => c.arv === arv);
+/* Qualificado = tem AQUELA perícia, naquele nível. Nada de herdar oficina de outra. */
+const temOficio = arv => nivelPericia(arv) >= NIVEL_OFICIO;
+const temPericia = arv => temOficio(arv);
 function oficinas(tipo){
   return Object.keys(OFICIOS)
-    .filter(arv => OFICIOS[arv].ac === tipo && temPericia(arv))
-    .map(arv => ({...OFICIOS[arv], arv, ativa: CLS().some(c => c.arv === arv)}))
-    .sort((a,b) => (b.ativa - a.ativa) || (nivelPericia(b.arv) - nivelPericia(a.arv)));
+    .filter(arv => OFICIOS[arv].ac === tipo && temOficio(arv))
+    .map(arv => ({...OFICIOS[arv], arv, ativa: CLS().some(c => c.arv === arv), nv: nivelPericia(arv)}))
+    .sort((a,b) => (b.ativa - a.ativa) || (b.nv - a.nv));
 }
 function oficioAtivo(tipo){ return oficinas(tipo)[0] || null; }
+/* o que falta para abrir a bancada da classe atual, se for uma classe de ofício */
+function oficioEmFormacao(){
+  for(const c of CLS()){
+    if(OFICIOS[c.arv] && !temOficio(c.arv))
+      return {arv:c.arv, v:OFICIOS[c.arv].v, nv:nivelPericia(c.arv), falta:NIVEL_OFICIO - nivelPericia(c.arv)};
+    if(ARV_COZINHA.includes(c.arv) && !temOficio(c.arv))
+      return {arv:c.arv, v:'Cozinhar', nv:nivelPericia(c.arv), falta:NIVEL_OFICIO - nivelPericia(c.arv)};
+  }
+  return null;
+}
 function coletar(){
   const o = oficioAtivo('coleta'); if(!o) return;
   if(state.coletaDia === hoje()){ toast('Você já coletou hoje', 'bad'); return; }
@@ -2897,21 +2947,28 @@ function telaMateriais(){
   ligarForja();
 }
 function telaTipo(){
+  const arv = arvOficina();
+  const of = OFICIOS[arv] || {v:'Forjar'};
+  const cat = FORJA[arv] || [];
+  const porSlot = {};
+  cat.forEach(([n,sl]) => (porSlot[sl] = porSlot[sl] || []).push(n));
   abrirSheet(`<div class="sheet">
-    <h3>O que você vai ${esc((oficioAtivo('equip')||{v:'forjar'}).v.toLowerCase())}?</h3>
+    <h3>${esc(of.v)} · ${esc(PERICIAS[arv] ? PERICIAS[arv][0] : '')} nv ${nivelPericia(arv)}</h3>
     <div class="lbl" style="margin-bottom:12px">Materiais: ${forja.sel.map(m=>esc(nomeMat(m.t,m.r))).join(' · ')}</div>
-    ${(() => { const ex = exclusivosDisponiveis(); return ex.length ? `
+    ${(() => { const slots = new Set(cat.map(c => c[1]));
+      const ex = exclusivosDisponiveis().filter(x => slots.has(x.s)); return ex.length ? `
       <div class="lbl" style="margin:4px 0 6px;color:var(--ouro)">Exclusivos seus · valem 35% a mais</div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px">
         ${ex.map(x => `<button class="btn" data-fj="forjar" data-s="${x.s}" data-t="${esc(x.n)}"
           style="flex:0 0 auto;padding:9px 12px;min-height:36px;font-size:11px;color:var(--ouro);background:rgba(255,201,74,.14)">
           ${esc(x.n)}</button>`).join('')}
       </div>` : ''; })()}
-    ${SLOTS.map(sl => `<div class="lbl" style="margin:10px 0 5px;color:var(--ciano)">${sl.n}</div>
+    ${SLOTS.filter(sl => porSlot[sl.k]).map(sl => `<div class="lbl" style="margin:10px 0 5px;color:var(--ciano)">${sl.n}</div>
       <div style="display:flex;flex-wrap:wrap;gap:5px">
-        ${sl.tipos.map(t => `<button class="btn ghost" data-fj="forjar" data-s="${sl.k}" data-t="${esc(t)}"
+        ${porSlot[sl.k].map(t => `<button class="btn ghost" data-fj="forjar" data-s="${sl.k}" data-t="${esc(t)}"
           style="flex:0 0 auto;padding:9px 12px;min-height:36px;font-size:11px">${esc(t)}</button>`).join('')}
       </div>`).join('')}
+    ${cat.length ? '' : '<div class="lbl">Esta bancada não tem catálogo.</div>'}
     <button class="btn ghost full" data-fj="voltar" style="margin-top:14px">Voltar</button></div>`);
   ligarForja();
 }
@@ -3875,6 +3932,16 @@ function irOb(acao, i){
     state.totais = Object.assign(inicial().totais, salvo.totais);
     if(!CLASSES[state.hunter.classe]) state.hunter.classe = 'nenhuma:0';
     if(!state.totais.xpCarreira){ let a = state.hunter.xp; for(let l=1; l<state.hunter.nivel; l++) a += xpNecessario(l); state.totais.xpCarreira = a; }
+    /* faxina: o bug antigo criava perícia nível 1 sem XP só de olhar. Some com as que
+       nunca foram treinadas de verdade e não pertencem a nenhuma classe sua. */
+    if(state.pericias){
+      const minhas = [state.hunter.classe, ...(state.hunter.extras||[])]
+        .map(id => (CLASSES[id]||{}).arv);
+      Object.keys(state.pericias).forEach(k => {
+        const o = state.pericias[k];
+        if(o && o.n <= 1 && !o.xp && !minhas.includes(k)) delete state.pericias[k];
+      });
+    }
     virarDia();
   } else {
     registrar('Sistema inicializado. Um novo jogador foi detectado.');
@@ -3895,7 +3962,6 @@ window.addEventListener('focus', () => {
 });
 </script>
 <script>
-/* registra o service worker quando servido por http(s) — é o que destrava "Instalar app" */
 if('serviceWorker' in navigator && location.protocol.indexOf('http') === 0){
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }

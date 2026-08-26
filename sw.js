@@ -1,6 +1,6 @@
 /* SISTEMA — Despertar · service worker
    Guarda o app inteiro no aparelho: depois da primeira abertura, funciona sem internet. */
-const CACHE = 'sistema-despertar-v1';
+const CACHE = 'sistema-despertar-v3';
 const BASE = ['./', './index.html', './manifest.webmanifest',
               './icon-192.png', './icon-512.png', './icon-maskable.png'];
 
