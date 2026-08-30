@@ -552,10 +552,13 @@ const TIT_ARQ = {
 /* Só o Orgulho fala de si em terceira pessoa — é o vício dele, não um padrão.
    Os outros seis levam títulos que descrevem o pecado, sem o "aquele que". */
 const TIT_ROTA = {
-  orgulho:  ['Aquele que Contou até o Infinito','Aquele que Contou até o Infinito… Duas Vezes',
-             'Aquele que na Flexão Empurra a Terra pra Baixo','Aquele que Pediu Desculpa ao Sol por Ofuscá-lo',
-             'Aquele que Venceu a Luta Antes de Chegar','Aquele que o Meio-Dia Espera',
-             'Aquele que Não Precisa de Segundo Lugar'],
+  orgulho:  ['Aquele que Contou até o Infinito e Achou Pouco',
+             'Aquele que Nasceu ao Meio-Dia e Nunca Mais Saiu de Lá',
+             'Aquele que na Flexão Empurra a Terra pra Baixo',
+             'Aquele que Perdeu de Propósito e Ainda Assim Ganhou',
+             'Aquele de Quem a Própria Sombra Pede Licença',
+             'Aquele que a Física Consulta Antes de Mudar as Regras',
+             'Aquele que Já Está Cansado de Ser o Mais Forte'],
   ira:      ['Pavio Curto','Sangue Fervendo','Conta Aberta','Rancor com Juros',
              'Fúria Anunciada','Cólera de Guerra','A Ira em Pessoa'],
   ganancia: ['Mão Leve','Dedo Comprido','Nunca Devolve','Coleção Sem Fim',
@@ -1613,7 +1616,8 @@ function perder(xpBase, coinBase, motivo){
       `«${falaParede()}»\n\nA punição por "${motivo}" foi lida e descartada.\nO registro continua lá. O dano, não.`);
     return {xp:0, co:0, parede:true};
   }
-  const r = (1 - reducao()) * (1 - f.corta);
+  const cofre = (typeof escudoCofre === 'function') ? escudoCofre() : {red:0};
+  const r = (1 - reducao()) * (1 - f.corta) * (1 - cofre.red);
   const xp = Math.round(xpBase * r), co = Math.round(coinBase * r);
   state.hunter.xp = Math.max(0, state.hunter.xp - xp);
   state.hunter.coins = Math.max(0, state.hunter.coins - co);
@@ -2183,6 +2187,20 @@ function evento(k, v=1, extra={}){
   }
 }
 
+/* ==================== O COFRE (passiva da Ganância) ====================
+   No original a Ganância é imortal: nada que tiram dele fica tirado.
+   Aqui a imortalidade tem preço em dinheiro — quanto maior o cofre parado,
+   menos a punição encosta. Curva logarítmica: 1.000 moedas quase não fazem
+   diferença, 1.000.000 deixam passar 1%. E o escudo é o próprio saldo, então
+   gastar na loja enfraquece você. É por isso que ele nunca solta o que junta. */
+const temCofre = () => CLS().some(c => c.arv === 'ganancia');
+function escudoCofre(){
+  if(!temCofre()) return {red:0, coins:0};
+  const c = Math.max(0, state.hunter.coins);
+  const red = Math.min(0.99, Math.log10(1 + c/1000) / Math.log10(1001) * 0.99);
+  return {red, coins:c};
+}
+
 /* ==================== A QUARTA PAREDE ====================
    No original ela não bate em ninguém: ela SEPARA. Protege a mente, filtra o que
    vem de fora, deixa quem a carrega ler a própria história em vez de sofrê-la —
@@ -2252,6 +2270,11 @@ PODERES.inveja = {
 };
 PODERES.ganancia = {
   n:'Cofre sem Fundo', grau:4,
+  passivo(){ const e = escudoCofre();
+    const falta = e.red >= 0.99 ? null : Math.max(0, Math.ceil((Math.pow(1001, (e.red+0.05)/0.99) - 1) * 1000));
+    return `Com ${fmt(e.coins)} Coins parados, a punição chega em ${Math.round((1-e.red)*100)}% do tamanho. `
+         + `Cada moeda guardada é armadura — e gastar na loja te enfraquece na mesma hora.`
+         + (falta && falta > e.coins ? ` Em ${fmt(falta)} Coins você sobe outro degrau.` : ''); },
   d:'Quanto mais você tem, mais rende. Exige pelo menos mil Coins guardados — e paga proporcional ao que está parado.',
   janela:'com 1.000 Coins ou mais no bolso',
   ok(){ return state.hunter.coins >= 1000; },
