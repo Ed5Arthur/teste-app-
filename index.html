@@ -437,7 +437,7 @@ const KEY = 'sistema:v1';
 /* Versão do app. O botão "Procurar atualização" compara com o versao.json
    publicado ao lado do index e, se houver diferença, limpa o cache do
    service worker e recarrega — é assim que a versão nova chega em quem já instalou. */
-const VERSAO = '3.2.0';
+const VERSAO = '3.3.0';
 async function procurarAtualizacao(){
   if(location.protocol.indexOf('http') !== 0){
     toast('Só funciona no app publicado', 'bad');
@@ -961,7 +961,23 @@ function resumoBonus(c){
 const TIDAS = () => state.tidas || (state.tidas = []);
 const jaTeve = id => TIDAS().includes(id);
 function marcarTida(id){ if(id && id !== 'nenhuma:0' && !jaTeve(id)) TIDAS().push(id); }
+/* O degrau mais alto que você já alcançou numa rota. Caminho andado não se anda de novo:
+   voltar a uma rota te devolve onde parou, não ao começo dela. */
+function topoAlcancado(arv){
+  let melhor = -1;
+  TIDAS().forEach(id => { const c = CLASSES[id];
+    if(c && c.arv === arv && classePermitida(c) && c.i > melhor) melhor = c.i; });
+  return melhor;
+}
+/* Dado um estágio escolhido, devolve o mais alto entre ele e o que você já teve. */
+function retomarEm(id){
+  const c = CLASSES[id]; if(!c || c.arv === 'nenhuma') return id;
+  const alto = topoAlcancado(c.arv);
+  return alto > c.i ? (c.arv + ':' + alto) : id;
+}
 function aplicarClasse(id, evolucao){
+  /* só na troca: evoluir tem que continuar subindo um degrau de cada vez */
+  if(!evolucao) id = retomarEm(id);
   if(String(id).indexOf('leitor:') === 0){ perObj('escrita', true); perObj('leitor', true); }
   if(evolucao && String(id).indexOf('leitor:') === 0){
     setTimeout(() => notificar('rank', 'A Quarta Parede', narra(fala(PD_EVOLUI, 'evo'))), 400);
@@ -4184,8 +4200,14 @@ function botaoClasse(c, evo){
       ${esc(narra(fala(PD_AVALIA_CLASSE, 'aval')))}<br>${esc(narra(fala(PD_CIUME, 'ciume')))}</div>`;
   }
   const semClasse = CL().arv === 'nenhuma';
-  const verbo = evo ? 'Evoluir classe' : semClasse ? 'Assumir esta classe' : 'Trocar de classe';
-  const principal = `<button class="btn solid full" data-act="${evo?'evoluir':'confirmar-troca'}" data-id="${c.id}">${verbo} · ${fmt(custo)} ⬢</button>`;
+  const volta = !evo ? CLASSES[retomarEm(c.id)] : null;
+  const retoma = volta && volta.id !== c.id;
+  const verbo = evo ? 'Evoluir classe'
+    : retoma ? `Retomar em ${nomeCl(volta)}`
+    : semClasse ? 'Assumir esta classe' : 'Trocar de classe';
+  const principal = `<button class="btn solid full" data-act="${evo?'evoluir':'confirmar-troca'}" data-id="${c.id}">${verbo} · ${fmt(custo)} ⬢</button>`
+    + (retoma ? `<div class="lbl" style="margin-top:6px;line-height:1.6;text-transform:none;letter-spacing:0;color:var(--ok)">
+        Você já subiu esta rota até <b>${esc(nomeCl(volta))}</b> · ${RARIDADES[volta.r].n}. O caminho andado não se anda de novo.</div>` : '');
   if(evo) return principal;
   if(temLeitor()) return principal + `<div class="lbl" style="margin-top:8px;line-height:1.6;
     text-transform:none;letter-spacing:0;color:var(--sombra)">
@@ -4195,8 +4217,9 @@ function botaoClasse(c, evo){
   /* bloco de multiclasse: sempre visível, dizendo por que pode ou não pode */
   let extra;
   if(podeAbsorver(c)){
+    const volta2 = CLASSES[retomarEm(c.id)];
     extra = `<button class="btn full" data-act="absorver" data-id="${c.id}" style="margin-top:8px">
-      Absorver como ${nClasses()+1}ª classe · ${fmt(custoAbsorver(c))} ⬢</button>`;
+      Absorver como ${nClasses()+1}ª classe${volta2.id !== c.id ? ` em ${esc(nomeCl(volta2))}` : ''} · ${fmt(custoAbsorver(c))} ⬢</button>`;
   } else {
     let motivo;
     if(CLS().some(x => x.arv === c.arv)) motivo = 'Você já está nesta rota';
@@ -4367,8 +4390,9 @@ function verClasse(id){
          <div class="lbl" style="text-align:center;margin-top:9px;line-height:1.6;text-transform:none;letter-spacing:0">
            ${CL().arv === 'nenhuma'
              ? 'Você está sem classe: assumir esta não custa nada e não reinicia nada.'
-             : jaTeve(c.id)
-               ? '<b style="color:var(--ok)">Você já teve esta classe.</b> Voltar a ela não reinicia nível, rank nem atributos.'
+             : jaTeve(c.id) || topoAlcancado(c.arv) >= 0
+               ? `<b style="color:var(--ok)">Você já percorreu esta rota.</b> Volta direto para
+                  ${esc(nomeCl(CLASSES[retomarEm(c.id)]))}, sem reiniciar nível, rank nem atributos.`
                : 'Trocar reinicia seu nível em 1 e o rank em E.<br>Metade dos pontos de atributo é preservada.'}</div>`}
     <button class="btn ghost full" data-act="fechar-sheet" style="margin-top:11px">Fechar</button></div>`);
 }
@@ -4757,6 +4781,7 @@ const podeAbsorver = c => c.arv !== 'nenhuma' && classePermitida(c) && multiLibe
   && CLS().filter(x => x.arv !== 'nenhuma').length < MAX_CLASSES;
 const custoAbsorver = c => Math.round(custoClasse(c, 1) * 1.6);
 function absorverClasse(id){
+  id = retomarEm(id);
   const c = CLASSES[id];
   if(!podeAbsorver(c)) { toast('Não dá para absorver esta classe', 'bad'); return; }
   if(!state.admin && !elegivel(c, 1)) { toast('Requisitos incompletos', 'bad'); return; }
@@ -5661,7 +5686,7 @@ document.addEventListener('click', e => {
   cozinhar(){ if(!podeCozinhar()){ toast('Sua classe não cozinha', 'bad'); return; } abrirForja('prato'); },
   comer(){ comerPrato(id); },
   'jogar-prato'(){ state.pratos = PRATOSOBJ().filter(x => x.id !== id); atualizar(); },
-  absorver(){ absorverClasse(id); },
+  absorver(){ absorverClasse(retomarEm(id)); },
   'evoluir-extra'(){ evoluirExtra(id); },
   'abrir-copia'(){ abrirCopia(); },
   anexar(){ abrirAnexar(); },
@@ -5719,7 +5744,7 @@ document.addEventListener('click', e => {
     atualizar();
   },
   'livro-absorver-ok'(){
-    const c = CLASSES[id];
+    const c = CLASSES[retomarEm(id)];
     if(CONS().livro < 1) return;
     CONS().livro--; state.multi = true;
     if(state.hunter.classe === 'nenhuma:0') state.hunter.classe = c.id;
@@ -5733,7 +5758,7 @@ document.addEventListener('click', e => {
     atualizar();
   },
   'livro-usar'(){
-    const c = CLASSES[id];
+    const c = CLASSES[retomarEm(id)];
     abrirForm({titulo:'Usar o Livro', ok:'Reescrever',
       campos:[{n:'x', rot:`Assumir ${c.nome} agora. O livro é consumido e seu nível volta a 1. Digite SIM`, ph:'SIM'}],
       onOk(d){

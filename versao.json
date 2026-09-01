@@ -1,4 +1,4 @@
 {
-  "versao": "3.2.0",
-  "notas": "Auditoria completa: pericias orfas removidas, estado inicial completo e cartao de pericia blindado."
+  "versao": "3.3.0",
+  "notas": "Voltar a uma rota ja percorrida retoma no degrau mais alto alcancado, inclusive na multiclasse."
 }
