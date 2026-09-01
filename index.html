@@ -437,7 +437,7 @@ const KEY = 'sistema:v1';
 /* Versão do app. O botão "Procurar atualização" compara com o versao.json
    publicado ao lado do index e, se houver diferença, limpa o cache do
    service worker e recarrega — é assim que a versão nova chega em quem já instalou. */
-const VERSAO = '3.3.0';
+const VERSAO = '3.4.0';
 async function procurarAtualizacao(){
   if(location.protocol.indexOf('http') !== 0){
     toast('Só funciona no app publicado', 'bad');
@@ -1560,12 +1560,22 @@ function validarClasses(){
   migrarRacas();
   /* o nome é parte do requisito: mudou o nome, ela vai embora */
   if(temLeitor() && !ehDono()){
+    /* Ela sai de cena, mas o selo continua aberto: quem abriu foi o dono.
+       Basta o nome voltar a bater para ela reaparecer, sem digitar a senha de novo. */
     state.hunter.classe = 'nenhuma:0';
-    state.leitor = false;
     state.paredeDorme = false;
-    registrar('A Quarta Parede foi embora: o nome mudou', 'perda');
+    registrar(`A Quarta Parede saiu: o nome agora é "${state.hunter.nome}"`, 'perda');
     notificar('penalidade', 'A Quarta Parede',
-      `${narra('para no meio da frase.')}\n\n${narra('diz: "esse nome não é o dele."')}\n\n${narra('some sem fechar a página que estava lendo.')}\n\nVocê ficou sem classe. O registro voltou a ser selado.`);
+      `${narra('para no meio da frase.')}\n\n${narra(`diz: "quem é ${state.hunter.nome}? esse nome não é o dele."`)}\n\n` +
+      `Ela só volta quando o nome do caçador for exatamente o dele.\nO registro continua aberto — não precisa da senha de novo.`);
+  }
+  /* nome voltou a bater e o selo está aberto: ela volta sozinha */
+  if(state.leitor && ehDono() && !temLeitor() && CL().arv === 'nenhuma' && RC().id === 'humano'){
+    state.hunter.classe = retomarEm('leitor:0');
+    marcarTida(state.hunter.classe);
+    registrar('A Quarta Parede voltou', 'rank');
+    notificar('rank', 'A Quarta Parede',
+      `${narra('reaparece exatamente na página em que tinha parado.')}\n\n${narra('diz: "eu avisei que era só o nome."')}`);
   }
   let mudou = false;
   const extras = (state.hunter.extras || []).filter(id => CLASSES[id]);
@@ -4020,6 +4030,17 @@ function renderStatus(){
     ${promptInstalar ? `<button class="btn solid full" data-act="instalar" style="margin-top:12px">Instalar na tela inicial</button>` : ''}
   </div>
 
+  ${(state.leitor && !temLeitor()) ? `
+  <h2 class="title" style="color:var(--sombra)">Registro selado</h2>
+  <div class="panel warn">
+    <div class="lbl" style="line-height:1.7;text-transform:none;letter-spacing:0">
+      O selo está aberto, mas ela não está equipada.
+      ${!ehDono() ? `O nome do caçador precisa ser <b>o dele</b> — hoje está <b>${esc(state.hunter.nome)}</b>.`
+        : RC().id !== 'humano' ? `A origem precisa ser <b>Humano</b> — hoje é <b>${esc(RC().n)}</b>.`
+        : 'Ela volta na próxima atualização da tela.'}
+    </div>
+  </div>` : ''}
+
   <h2 class="title">Base de dados</h2>
   <div class="panel">
     <div class="lbl" style="margin-bottom:10px;text-transform:none;letter-spacing:0;line-height:1.6">
@@ -5888,9 +5909,9 @@ document.addEventListener('click', e => {
           return;
         }
         state.leitor = true;
-        state.hunter.classe = 'leitor:6';
+        state.hunter.classe = retomarEm('leitor:0');   // começa no começo; retoma se já subiu
         state.hunter.extras = [];
-        marcarTida('leitor:6');
+        marcarTida(state.hunter.classe);
         state.paredeJaFoi = true;
         state.admin = false;
         registrar('Registro selado aberto', 'rank');

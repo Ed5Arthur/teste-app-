@@ -1,4 +1,4 @@
 {
-  "versao": "3.3.0",
-  "notas": "Voltar a uma rota ja percorrida retoma no degrau mais alto alcancado, inclusive na multiclasse."
+  "versao": "3.4.0",
+  "notas": "O selo nao se refecha: a classe volta sozinha quando o nome bate, e o Status diz o motivo."
 }
