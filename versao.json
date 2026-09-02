@@ -1,4 +1,4 @@
 {
-  "versao": "3.4.0",
-  "notas": "O selo nao se refecha: a classe volta sozinha quando o nome bate, e o Status diz o motivo."
+  "versao": "3.7.0",
+  "notas": "Ícone novo do Sol Livre, desenhado pelo Soranzai. Cólera agora arde só com CSS — sem sprite, 37 KB a menos."
 }
