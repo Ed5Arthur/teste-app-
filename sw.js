@@ -17,7 +17,7 @@
    desregistra este arquivo e navega para um endereço novo. Na volta,
    tudo isto aqui é reconstruído com a versão nova. */
 
-const VERSAO = '3.7.0';
+const VERSAO = '3.8.0';
 const CACHE  = 'sistema-despertar-v' + VERSAO;
 
 const CASCA = [
