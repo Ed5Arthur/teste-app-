@@ -1,4 +1,4 @@
 {
-  "versao": "3.8.0",
-  "notas": "Botão de instalar como app na introdução. Temas ganharam folha própria. Ícone da Quarta Parede reescrito. Toon Force agora acende o Sol Livre inteiro. Tutorial pula passos sem alvo e volta a começar sozinho."
+  "versao": "3.8.1",
+  "notas": "Conserto do app que não abria: a tela de abertura agora sai sozinha por CSS, o carregamento tem uma tela de resgate com backup e botão de religar, e o cache deixa de guardar página pela metade."
 }

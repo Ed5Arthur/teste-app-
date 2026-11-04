@@ -287,8 +287,13 @@ textarea{min-height:110px;font-family:'JetBrains Mono',monospace;font-size:12px}
 /* capa de abertura */
 #capa{position:fixed;inset:0;z-index:80;display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:2px;background:radial-gradient(120% 80% at 50% 30%,#12325a 0%,#070f1e 55%,#03060d 100%);
-  transition:opacity .5s ease, visibility .5s}
-#capa.sai{opacity:0;visibility:hidden;pointer-events:none}
+  transition:opacity .5s ease, visibility .5s;
+  /* REDE DE SEGURANÇA: a capa some sozinha aos 7s mesmo que o JS esteja morto.
+     O normal continua sendo o JS tirar ela em 1,5s — isto aqui é só o paraquedas.
+     Animação de CSS não depende de setTimeout, que o Android pode engasgar. */
+  animation:capaSocorro .45s linear 7s forwards}
+@keyframes capaSocorro{to{opacity:0;visibility:hidden;pointer-events:none}}
+#capa.sai{opacity:0;visibility:hidden;pointer-events:none;animation:none}
 #capa .emb{width:112px;height:112px;margin-bottom:20px;animation:pulsa 2.4s ease-in-out infinite}
 @keyframes pulsa{0%,100%{filter:drop-shadow(0 0 14px rgba(78,214,255,.45))}50%{filter:drop-shadow(0 0 30px rgba(78,214,255,.85))}}
 #capa h1{margin:0;font-size:27px;font-weight:700;letter-spacing:.20em;color:#fff;
@@ -437,7 +442,7 @@ const KEY = 'sistema:v1';
 /* Versão do app. O botão "Procurar atualização" compara com o versao.json
    publicado ao lado do index e, se houver diferença, limpa o cache do
    service worker e recarrega — é assim que a versão nova chega em quem já instalou. */
-const VERSAO = '3.8.0';
+const VERSAO = '3.8.1';
 async function procurarAtualizacao(silencioso){
   if(location.protocol.indexOf('http') !== 0){
     if(silencioso) return;
@@ -4349,7 +4354,9 @@ function painelTemas(){
   const ids = temasVisiveis();
   const abertos = ids.filter(temaLiberado).length;
   const vestido = temaAtual();
-  const nome = vestido ? TEMAS[vestido].n : 'Padrão do Sistema';
+  /* temaAtual() devolve o OBJETO do tema, não o id. Procurar TEMAS[objeto] dava
+     undefined e o .n derrubava a tela inteira — era este o travamento. */
+  const nome = vestido ? vestido.n : 'Padrão do Sistema';
   const preso = temLeitor();
   return `
   <h2 class="title" id="t-tema">Aparência</h2>
@@ -7185,8 +7192,100 @@ function irOb(acao, i){
 }
 
 
+/* ---------- rede de segurança do boot ----------
+   O boot era uma função async sem try/catch: qualquer erro virava promessa
+   rejeitada em silêncio, a capa ficava para sempre e não havia como sair pelo
+   próprio app. Agora existem três camadas:
+     1. a capa some por CSS aos 7s, aconteça o que acontecer (lá em cima);
+     2. qualquer erro no boot cai no catch e abre a tela de resgate;
+     3. se o boot simplesmente não terminar em 9s, o cão de guarda abre ela também.
+   A tela de resgate é escrita em DOM puro, sem usar nenhuma função do app —
+   ela precisa funcionar justamente quando o app não está funcionando. */
+let bootConcluiu = false, resgateAberto = false;
+
+function tirarCapa(){
+  try{ const c = document.getElementById('capa'); if(c) c.className = 'sai'; }catch(e){}
+}
+
+function telaDeResgate(motivo){
+  if(bootConcluiu || resgateAberto) return;
+  resgateAberto = true;
+  try{
+    tirarCapa();
+    const d = document.createElement('div');
+    d.id = 'resgate';
+    d.setAttribute('style', 'position:fixed;inset:0;z-index:999;overflow:auto;'
+      + 'background:#07101e;color:#D8EAFB;font-family:system-ui,sans-serif;'
+      + 'padding:28px 20px;line-height:1.6');
+    const bt = 'display:block;width:100%;padding:14px;margin-bottom:10px;border-radius:10px;'
+      + 'border:1px solid rgba(120,170,210,.4);background:rgba(78,214,255,.10);'
+      + 'color:#D8EAFB;font-size:15px;font-family:inherit;cursor:pointer';
+    d.innerHTML =
+      '<div style="max-width:460px;margin:0 auto">'
+      + '<div style="letter-spacing:.3em;font-size:11px;color:#4ED6FF;text-transform:uppercase">Sistema</div>'
+      + '<h2 style="margin:6px 0 14px;font-size:21px">O app não terminou de abrir</h2>'
+      + '<p style="font-size:14px;color:#9FB6CC;margin:0 0 6px">Motivo: ' + String(motivo || 'desconhecido').slice(0,300) + '</p>'
+      + '<p style="font-size:14px;color:#9FB6CC;margin:0 0 18px">Seu progresso não foi apagado. '
+      + 'Comece copiando ele, por garantia, e depois tente religar.</p>'
+      + '<button id="rgBackup" style="' + bt + '">1 · Copiar meu progresso</button>'
+      + '<textarea id="rgTxt" readonly style="display:none;width:100%;height:110px;margin-bottom:10px;'
+      + 'background:#040a14;color:#9FB6CC;border:1px solid rgba(120,170,210,.3);border-radius:8px;'
+      + 'padding:8px;font-size:11px;font-family:monospace"></textarea>'
+      + '<button id="rgReligar" style="' + bt + '">2 · Religar o app (limpa o cache, mantém o progresso)</button>'
+      + '<button id="rgSeguir" style="' + bt + '">3 · Abrir mesmo assim</button>'
+      + '<p style="font-size:12px;color:#6B8098;margin-top:16px">Se nem assim abrir: feche o app de vez '
+      + '(pela lista de apps recentes) e abra de novo. O travamento costuma ser do próprio Android '
+      + 'segurando o app, e isso o solta.</p></div>';
+    document.body.appendChild(d);
+
+    const bk = document.getElementById('rgBackup');
+    if(bk) bk.onclick = function(){
+      let txt = '';
+      try{ txt = window.localStorage.getItem('sistema:v1') || ''; }catch(e){}
+      const ta = document.getElementById('rgTxt');
+      if(!txt){ bk.textContent = 'Nada salvo encontrado neste navegador'; return; }
+      if(ta){ ta.style.display = 'block'; ta.value = txt; ta.select(); }
+      try{
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([txt], {type:'application/json'}));
+        a.download = 'sistema-resgate.json'; a.click();
+      }catch(e){}
+      try{ navigator.clipboard.writeText(txt); }catch(e){}
+      bk.textContent = '✓ Copiado — guarde esse texto em algum lugar';
+    };
+
+    const rl = document.getElementById('rgReligar');
+    if(rl) rl.onclick = async function(){
+      rl.textContent = 'Religando…';
+      try{
+        if('caches' in window){
+          const ks = await caches.keys();
+          await Promise.all(ks.map(k => caches.delete(k)));
+        }
+      }catch(e){}
+      try{
+        if(navigator.serviceWorker){
+          const rs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(rs.map(r => r.unregister()));
+        }
+      }catch(e){}
+      const base = location.href.split('#')[0].split('?')[0];
+      location.replace(base + '?v=' + Date.now());
+    };
+
+    const sg = document.getElementById('rgSeguir');
+    if(sg) sg.onclick = function(){ try{ d.remove(); }catch(e){} };
+  }catch(e){
+    /* se nem a tela de resgate consegue nascer, pelo menos destranca a tela */
+    tirarCapa();
+  }
+}
+
 /* ---------- boot ---------- */
 (async function(){
+  /* cão de guarda: se o boot não terminar, alguém precisa avisar */
+  const guarda = setTimeout(() => telaDeResgate('o carregamento travou no meio'), 9000);
+  try{
   const salvo = await Store.load();
   if(salvo && salvo.hunter){
     state = Object.assign(inicial(), salvo);
@@ -7224,6 +7323,15 @@ function irOb(acao, i){
     history.replaceState(null, '', location.pathname); }catch(e){}
   setTimeout(() => checarVersaoDeFundo(), 3500);
   setTimeout(garantirTutorial, 1800);
+  /* chegou aqui: está tudo de pé. Desarma o cão de guarda e garante a capa fora,
+     sem depender do setTimeout de 1,5s ter sobrevivido. */
+  bootConcluiu = true;
+  clearTimeout(guarda);
+  setTimeout(tirarCapa, 1500);
+  }catch(e){
+    clearTimeout(guarda);
+    telaDeResgate((e && e.message) ? e.message : String(e));
+  }
 })();
 /* Checagem silenciosa: no máximo uma a cada 6h, e só com internet.
    O versao.json tem 130 bytes — não custa nada e evita ficar clicando à toa. */
